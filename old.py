@@ -29,6 +29,9 @@ if __name__ == '__main__':
     # Establish connection
     conn = xmlrpc.client.ServerProxy(connection_string, context=sslcontext, allow_none=True)
 
+    all_jobs = conn.job_list()
+    for k in all_jobs:
+        print(k)
     job_name = 'db_configure'
     # View the required parameters for a given job
     job_details = conn.job_desc(job_name)[1]
