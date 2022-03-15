@@ -73,7 +73,7 @@ def compare_and_update_details_1(list1, list2, list2_index, version):
                 # Add new entry with the corresponding version
                 list1.append(
                     {
-                        'data': list2[list2_index],
+                        'data': list2[list2_index] if list2[list2_index] is not None else '',
                         'versions': [version]
                     }
                 )
@@ -133,7 +133,6 @@ def check_if_file_exists (file_name):
 
 def create_file(path_to_file, file_name, flare_tag):
     if flare_tag == '':
-        print(f"{file_name}: flare_tag is empty")
         file_start_text = f"""<?xml version="1.0" encoding="utf-8"?>
 <html xmlns:MadCap="http://www.madcapsoftware.com/Schemas/MadCap.xsd">
 """
@@ -150,7 +149,7 @@ def create_file(path_to_file, file_name, flare_tag):
     </head>
     <body>
         <MadCap:concept term="aws;azure;gcp;on-prem" />
-        <h1>job_example</h1>
+        <h1>{file_name}</h1>
         <div id="automated_description">
         </div>
         <h2>Mandatory Parameters</h2>
@@ -196,10 +195,212 @@ def insert_into_file(file_name, text):
     with open(file_name, "w", encoding="utf-8") as file:
         file.write(str(text))
 
+def number_is_even(num):
+    if num % 2 == 0:
+        return True
+    else:
+        return False
+
+def generate_xml(job_name, detail_name, data):
+    xml = BeautifulSoup('', 'xml')
+    global job_list
+    if detail_name == 'description':
+        # Add the new entry
+        for info in data:
+            p_attrs = {'MadCap:conditions': clean_up_conditions(info["versions"])}
+            p_tag = xml.new_tag('p', **p_attrs)
+            p_tag.insert(0, info['data'])
+            xml.append(p_tag)
+            job_list = insert_row_into_table(job_list, number_is_even(f), clean_up_conditions(info['versions']), job_name, info['data'])
+
+    elif detail_name == 'mandatory_params':
+        if not data:
+            # Data is empty, return message
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'There are no mandatory parameters.')
+            xml.append(p_tag)
+        else:
+            # There is some data
+            table = create_table('','Parameter Name', 'Data Type', 'Description')
+            i=1
+            for param_name, param_details in data.items():
+                for k in param_details:
+                    table = insert_row_into_table(table, number_is_even(i), clean_up_conditions(k['versions']), param_name, ', '.join(k['data']['type']), k['data']['desc'])
+                    xml.append(table)
+                    i+=1
+
+    elif detail_name == 'optional_params':
+        if not data:
+            # Data is empty, return message
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'There are no optional parameters.')
+            xml.append(p_tag)
+        else:
+            table = create_table('', 'Parameter Name', 'Data Type', 'Description')
+            i = 1
+            for param_name, param_details in data.items():
+                for k in param_details:
+                    table = insert_row_into_table(table, number_is_even(i), clean_up_conditions(k['versions']),
+                                                  param_name, ', '.join(k['data']['type']), k['data']['desc'])
+                    xml.append(table)
+                    i += 1
+
+    elif detail_name == 'substitute_params':
+        if not data:
+            # Data is empty, return message
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'There are no substitute parameters.')
+            xml.append(p_tag)
+        else:
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'The below table describes what parameters can be substituted for another parameter.')
+            xml.append(p_tag)
+            table = create_table('', 'Parameter Name', 'Substitute Parameter')
+            i = 1
+            for param_name, param_details in data.items():
+                for k in param_details:
+                    table = insert_row_into_table(table, number_is_even(i), clean_up_conditions(k['versions']),
+                                                  param_name, k['data'][0])
+                    xml.append(table)
+                    i += 1
+
+
+    elif detail_name == 'allowed_users':
+        if not data:
+            # Data is empty, return message
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'There are no defined allowed users.')
+            xml.append(p_tag)
+        else:
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'The following users are allowed to run this job:')
+            xml.append(p_tag)
+
+            for k in data:
+                if isinstance(k['data'], str):
+                    k['data'] = list(k['data'].split(', '))
+                if k['data'] == []:
+                    p_attrs = {'MadCap:conditions': clean_up_conditions(k["versions"])}
+                    p_tag = xml.new_tag('p', **p_attrs)
+                    p_tag.insert(0, 'There are no defined allowed users.')
+                    xml.append(p_tag)
+                else:
+                    ul_attrs = {'MadCap:conditions': clean_up_conditions(k["versions"])}
+                    html_list = xml.new_tag('ul', **ul_attrs)
+                    if isinstance(k['data'], str):
+                        k['data'] = list(k['data'].split(', '))
+                    for user in k['data']:
+                        li = xml.new_tag('li')
+                        li.string = user
+                        html_list.append(li)
+
+                    xml.append(html_list)
+
+    elif detail_name == 'allowed_groups':
+        if not data:
+            # Data is empty, return message
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'There are no defined allowed groups.')
+            xml.append(p_tag)
+
+        else:
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'The following groups are allowed to run this job:')
+            xml.append(p_tag)
+
+            for k in data:
+                if isinstance(k['data'], str):
+                    k['data'] = list(k['data'].split(', '))
+                if k['data'] == []:
+                    p_attrs = {'MadCap:conditions': clean_up_conditions(k["versions"])}
+                    p_tag = xml.new_tag('p', **p_attrs)
+                    p_tag.insert(0, 'There are no defined allowed groups.')
+                    xml.append(p_tag)
+                else:
+
+                    ul_attrs = {'MadCap:conditions': clean_up_conditions(k["versions"])}
+                    html_list = xml.new_tag('ul', **ul_attrs)
+
+                    for group in k['data']:
+                        li = xml.new_tag('li')
+                        li.string = group
+                        html_list.append(li)
+
+                    xml.append(html_list)
+
+    else:
+        sys.exit(f"Attempted to add xml in a non-valid section: {detail_name}")
+
+    return xml
+
+def create_table(conditions, *args):
+    table_attributes = {}
+    table_attributes['MadCap:conditions'] = conditions
+    table_attributes['style'] = "mc-table-style: url('../Resource/TableStylesheets/Standard.css');"
+    table_attributes['class'] = 'TableStyle-Standard'
+    table_attributes['cellspacing'] = '0'
+
+    table_object = BeautifulSoup('')
+    new_tab = table_object.new_tag('table', **table_attributes)
+    table_object.insert(0, new_tab)
+    # Insert column classes
+    for k in args:
+        col_attrs = {}
+        col_attrs['class'] = 'TableStyle-Standard-Column-Column1'
+        new_col = table_object.new_tag('col', **col_attrs)
+        table_object.find('table').append(new_col)
+    thead = table_object.new_tag('thead')
+    table_object.find('table').append(thead)
+    tbody = table_object.new_tag('tbody')
+    table_object.find('table').append(tbody)
+
+    tr_attrs = {'class': 'TableStyle-Standard-Head-Header1'}
+    header_row = table_object.new_tag('tr', **tr_attrs)
+    table_object.find('thead').append(header_row)
+
+
+    for k in args:
+        th_attrs = {'class': 'TableStyle-Standard-HeadE-Column1-Header1'}
+        th = table_object.new_tag('th', **th_attrs)
+        th.insert(0,k)
+        table_object.find('tr').append(th)
+
+    return new_tab
+
+def insert_row_into_table(table, even, conditions, *args):
+    if even:
+        tr_attrs = {'class': 'TableStyle-Standard-Body-Body2'}
+        td_attrs = {'class': 'TableStyle-Standard-BodyB-Column1-Body2'}
+    else:
+        tr_attrs = {'class': 'TableStyle-Standard-Body-Body1'}
+        td_attrs = {'class': 'TableStyle-Standard-BodyB-Column1-Body1'}
+
+    tr_attrs['MadCap:conditions'] = conditions
+    tr = soup.new_tag('tr', **tr_attrs)
+
+
+    for arg in args:
+
+        td = soup.new_tag('td', **td_attrs)
+        td.insert(0, arg)
+        tr.append(td)
+    table.find('tbody').append(tr)
+
+    return table
+
+def clear_overview_page():
+    with open(overview_file, encoding="utf8") as overview:
+        job_list = BeautifulSoup(overview, "xml")
+
+    job_list.find('div', {"id": "job_list"}).clear()
+
+    insert_into_file(overview_file, job_list)
+
 if __name__ == '__main__':
     list_of_options = []
-    absolute_path_to_files = 'C:\\Docs\Content\Content\ConfD\\'
+    absolute_path_to_files = 'C:\Docs\Content\Content\ConfD\\'
     toc_file = 'C:\Docs\Content\Project\TOCs\Combined TOC.fltoc'
+    overview_file = 'C:\Docs\Content\Content\ConfD\ConfD_Reference.htm'
     # Note - the below credentials are NOT database users, these are confd users
     databases = [{'host': 'localhost',
                   'confd_port': 4443,
@@ -218,6 +419,7 @@ if __name__ == '__main__':
 
     confd_jobs = {}
     for database in databases:
+        print(f"Pulling ConfD information from database at {database['host']}:{database['confd_port']} ")
         # Make initial connection to the database to read data
         conn = connect_to_confd(database['host'], database['confd_port'], database['confd_username'], database['confd_pw'])
 
@@ -300,44 +502,21 @@ if __name__ == '__main__':
 
                     update_confd_jobs_dict(confd_jobs, job_details, i, job, detail_name, version_family)
 
-
-    for job, params in confd_jobs.items():
-        # Print differences found
-        if not (('7.1' in params['versions']) and ('7.0' in params['versions'])):
-            print(f'{job}: Job not found in both versions')
-            continue
-
-        if len(params['description']) > 1:
-            print(f'{job}: Job description does not match')
-            print(*params['description'], sep='\n')
-
-        for k, param in params['mandatory_params'].items():
-            for i in param:
-                if not (('7.1' in i['versions']) and ('7.0' in i['versions'])):
-                    print(f'{job}: Mandatory parameter {k} has differences!')
-
-        for k, param in params['optional_params'].items():
-            for i in param:
-                if not (('7.1' in i['versions']) and ('7.0' in i['versions'])):
-                    print(f'{job}: Optional parameter {i} has differences!')
-
-        for k, param in params['substitute_params'].items():
-            for i in param:
-                if not (('7.1' in i['versions']) and ('7.0' in i['versions'])):
-                    print(f'{job}: Substitute parameter {i} has differences!')
-
-        if len(params['allowed_users']) > 1:
-            print(f'{job}: Job allowed users does not match:')
-            print(*params['allowed_users'], sep='\n')
-
-        if len(params['allowed_groups']) > 1:
-            print(f'{job}: Job allowed groups does not match:')
-            print(*params['allowed_groups'], sep='\n')
-    print("test")
-
     # Now we begin creating all of the Soup stuff
 
+    # empty the overview page
+    with open(overview_file, encoding="utf8") as overview:
+        overview_page = BeautifulSoup(overview, "xml")
+    global job_list
+    job_list = overview_page.find('div', {"id": "job_list"})
+    job_list.clear()
+
+    job_list.append(create_table('','Job Name', 'Description'))
+
+    f=1
     for job, details in sorted(confd_jobs.items()):
+        print(f"Updating file {job}.htm")
+
         # Check if there is already a file for this job name
 
         full_path = absolute_path_to_files + f'{job}.htm'
@@ -352,32 +531,15 @@ if __name__ == '__main__':
             if detail_name not in ['job_name', 'versions']:
                 section = soup.find("div", {"id": f"automated_{detail_name}"})
                 section.clear()
+                section.append(generate_xml(job, detail_name, detail_info))
 
-                #section_append(generate_xml(detail_name, detail_info), 'xml')
-
-            if detail_name == 'description':
-                # Add the new entry
-                for i in detail_info:
-                    section.append(BeautifulSoup(f'<p MadCap:Conditions="{clean_up_conditions(i["versions"])}">{i["data"]}</p>', "xml"))
-
-            if detail_name == 'mandatory_params':
-                pass
-
-            if detail_name == 'optional_params':
-                pass
-
-            if detail_name == 'substitute_params':
-                pass
-
-            if detail_name == 'allowed_users':
-                pass
-
-            if detail_name == 'allowed_groups':
-                pass
+        f+=1
 
         insert_into_file(full_path, soup)
+    insert_into_file(overview_file, overview_page)
 
 
+    print("done")
 # for each database do:
 # Use job_list to Iterate through each job. For each job:
 # populate data dictionary entries with
