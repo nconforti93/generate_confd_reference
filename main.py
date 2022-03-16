@@ -107,19 +107,31 @@ def clean_up_data(value):
         wordlist = '\t'.join(value['type'])
     else:
         sys.exit(f"Type is not a string or list. Data: {value}")
-
+    match_found = False
     if 'str' in wordlist:
         new_type.append('string')
+        match_found = True
     if 'int' in wordlist:
         new_type.append('integer')
+        match_found = True
     if 'bool' in wordlist:
         new_type.append('boolean')
+        match_found = True
     if 'tuple' in wordlist:
         new_type.append('tuple')
+        match_found = True
     if 'dict' in wordlist:
         new_type.append('dict')
+        match_found = True
     if 'object' in wordlist:
         new_type.append('object')
+        match_found = True
+    if 'list' in wordlist:
+        new_type.append('list')
+        match_found = True
+
+    if not match_found:
+        sys.exit(f'Unmapped data type: {value}')
 
     value['type'] = new_type
     return value
@@ -211,7 +223,7 @@ def generate_xml(job_name, detail_name, data):
             p_tag = xml.new_tag('p', **p_attrs)
             p_tag.insert(0, info['data'])
             xml.append(p_tag)
-            job_list = insert_row_into_table(job_list, number_is_even(f), clean_up_conditions(info['versions']), job_name, info['data'])
+            job_list = insert_row_into_table(job_list, number_is_even(f), clean_up_conditions(info['versions']), cross_reference(f'{job_name}.htm', job_name), info['data'])
 
     elif detail_name == 'mandatory_params':
         if not data:
@@ -396,11 +408,18 @@ def clear_overview_page():
 
     insert_into_file(overview_file, job_list)
 
+def cross_reference(url, text):
+    props = {'href': url}
+    xref = soup.new_tag('MadCap:xref', **props)
+    xref.string = text
+    return xref
+
 if __name__ == '__main__':
     list_of_options = []
     absolute_path_to_files = 'C:\Docs\Content\Content\ConfD\\'
     toc_file = 'C:\Docs\Content\Project\TOCs\Combined TOC.fltoc'
     overview_file = 'C:\Docs\Content\Content\ConfD\ConfD_Reference.htm'
+    toc_paths = '/Content/ConfD'
     # Note - the below credentials are NOT database users, these are confd users
     databases = [{'host': 'localhost',
                   'confd_port': 4443,
@@ -505,13 +524,20 @@ if __name__ == '__main__':
     # Now we begin creating all of the Soup stuff
 
     # empty the overview page
-    with open(overview_file, encoding="utf8") as overview:
+    with open(overview_file, encoding="utf-8-sig") as overview:
         overview_page = BeautifulSoup(overview, "xml")
     global job_list
     job_list = overview_page.find('div', {"id": "job_list"})
     job_list.clear()
 
     job_list.append(create_table('','Job Name', 'Description'))
+
+    # Prepare new TOC entries
+    with open(toc_file, encoding="utf-8-sig") as toc:
+        toc_page = BeautifulSoup(toc, "xml")
+
+    for entry in toc_page.findAll('TocEntry', {'Link': '/Content/ConfD/ConfD_Reference.htm'}):
+        entry.clear()
 
     f=1
     for job, details in sorted(confd_jobs.items()):
@@ -531,13 +557,28 @@ if __name__ == '__main__':
             if detail_name not in ['job_name', 'versions']:
                 section = soup.find("div", {"id": f"automated_{detail_name}"})
                 section.clear()
+                # Adds the entry to the new page as well as the entry to the overview page
                 section.append(generate_xml(job, detail_name, detail_info))
+
+        # Add page to appropriate TOC locations
+        for entry in toc_page.findAll('TocEntry', {'Link': '/Content/ConfD/ConfD_Reference.htm'}):
+            toc_props = {}
+            toc_props['Title'] = '[%=System.LinkedHeader%]'
+            toc_props['Link'] = f'{toc_paths}/{job}.htm'
+
+            if clean_up_conditions(details['versions']) != '':
+                toc_props['conditions'] = clean_up_conditions(details['versions'])
+
+            new_toc_entry = soup.new_tag('TocEntry', **toc_props)
+            entry.append(new_toc_entry)
+
+
 
         f+=1
 
         insert_into_file(full_path, soup)
     insert_into_file(overview_file, overview_page)
-
+    insert_into_file(toc_file, toc_page)
 
     print("done")
 # for each database do:
