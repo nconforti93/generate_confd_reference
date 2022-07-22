@@ -1,6 +1,7 @@
 import sys
 import requests, urllib3, ssl
 from bs4 import BeautifulSoup
+from bs4 import NavigableString
 import glob, os
 import xmlrpc.client
 import json
@@ -43,13 +44,14 @@ def get_job_details(connection, job_name):
 
 def update_confd_jobs_dict(confd_job_dict, job_details_dict, counter, job_name, detail_name, version):
     if job_details_dict[counter] is not None:
-        if len(job_details[i]) > 0:
-            if counter >= 4:
+        if len(job_details[counter]) > 0:
+            if type(job_details_dict[counter]) is list:
+                confd_job_dict[job_name][detail_name] = []
                 for val in job_details_dict[counter]:
-                    confd_job_dict[job_name][detail_name] = [{
+                    confd_job_dict[job_name][detail_name].append({
                         'data': val,
                         'versions': [version]
-                    }]
+                    })
             else:
                 for key, value in job_details_dict[counter].items():
 
@@ -155,9 +157,9 @@ def create_file(path_to_file, file_name, flare_tag):
 
 
     file_start_text = file_start_text + f"""
-    <head><title>{file_name} | [%=Exasol Variables.TopicTitle%]</title>
+    <head><title>{file_name} - ConfD | [%=Exasol Variables.TopicTitle%]</title>
         <meta name="description" content="Learn about the ConfD Job {file_name}." />
-        <link href="../Resource/TableStylesheets/SimpleTable.css" rel="stylesheet" MadCap:stylesheetType="table" />
+        <link href="../../Resource/TableStylesheets/Standard.css" rel="stylesheet" MadCap:stylesheetType="table" />
     </head>
     <body>
         <MadCap:concept term="aws;azure;gcp;on-prem" />
@@ -188,7 +190,7 @@ def create_file(path_to_file, file_name, flare_tag):
     insert_into_file(path_to_file,file_start_text)
 
 def clean_up_conditions(version_list):
-    all_versions = ['7.0', '7.1']
+    all_versions = ['8.2']
 
     # All versions are mapped, can return an empty string
     if all(version in version_list for version in all_versions):
@@ -223,7 +225,7 @@ def generate_xml(job_name, detail_name, data):
             p_tag = xml.new_tag('p', **p_attrs)
             p_tag.insert(0, info['data'])
             xml.append(p_tag)
-            job_list = insert_row_into_table(job_list, number_is_even(f), clean_up_conditions(info['versions']), cross_reference(f'{job_name}.htm', job_name), info['data'])
+            #job_list = insert_row_into_table(job_list, number_is_even(f), clean_up_conditions(info['versions']), cross_reference(f'{job_name}.htm', job_name), info['data'])
 
     elif detail_name == 'mandatory_params':
         if not data:
@@ -233,7 +235,7 @@ def generate_xml(job_name, detail_name, data):
             xml.append(p_tag)
         else:
             # There is some data
-            table = create_table('','Parameter Name', 'Data Type', 'Description')
+            table = create_table('',True,'Parameter Name', 'Data Type', 'Description')
             i=1
             for param_name, param_details in data.items():
                 for k in param_details:
@@ -248,7 +250,7 @@ def generate_xml(job_name, detail_name, data):
             p_tag.insert(0, 'There are no optional parameters.')
             xml.append(p_tag)
         else:
-            table = create_table('', 'Parameter Name', 'Data Type', 'Description')
+            table = create_table('', True, 'Parameter Name', 'Data Type', 'Description')
             i = 1
             for param_name, param_details in data.items():
                 for k in param_details:
@@ -267,7 +269,7 @@ def generate_xml(job_name, detail_name, data):
             p_tag = xml.new_tag('p')
             p_tag.insert(0, 'The below table describes what parameters can be substituted for another parameter.')
             xml.append(p_tag)
-            table = create_table('', 'Parameter Name', 'Substitute Parameter')
+            table = create_table('', True, 'Parameter Name', 'Substitute Parameter')
             i = 1
             for param_name, param_details in data.items():
                 for k in param_details:
@@ -340,15 +342,98 @@ def generate_xml(job_name, detail_name, data):
 
                     xml.append(html_list)
 
+    elif detail_name == 'examples':
+        if not data:
+            # Data is empty, return message
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'There are no examples.')
+            xml.append(p_tag)
+
+        else:
+            p_tag = xml.new_tag('p')
+            p_tag.insert(0, 'The following code snippets show how to use this job using both Python (via XML-RPC) and on the command-line using confd_client.')
+            xml.append(p_tag)
+
+            # set up Python code snippet container
+            python_dropdown = prepare_dropdown('Python using XML-RPC')
+
+            # set up confd_client code snippet container
+            confd_dropdown = prepare_dropdown('Command-line using confd_client')
+
+            for k in data:
+                if k and type(k['data']) is dict:
+                    # Add example in Python
+                    python_dropdown_body = python_dropdown.find('MadCap:dropDownBody')
+                    python_dropdown_body.append(
+                        create_code_snippet(format_code(job_name, 'python', json.dumps(k['data'])), 'Python', k["versions"]))
+                    confd_dropdown_body = confd_dropdown.find('MadCap:dropDownBody')
+                    confd_dropdown_body.append(
+                        create_code_snippet(format_code(job_name, 'bash', json.dumps(k['data'])), '', k["versions"]))
+
+                else:
+                    sys.exit(f'Example was not empty or a dict in job {job_name}')
+            xml.append(python_dropdown)
+            xml.append(confd_dropdown)
+
+
     else:
         sys.exit(f"Attempted to add xml in a non-valid section: {detail_name}")
 
     return xml
 
-def create_table(conditions, *args):
+def prepare_dropdown(header_text):
+    xml = BeautifulSoup('', 'xml')
+
+    dropdown = xml.new_tag('MadCap:dropDown')
+    dropdown_head = xml.new_tag('MadCap:dropDownHead')
+
+    dropdown_hotspot = xml.new_tag('MadCap:dropDownHotspot')
+    dropdown_hotspot.insert(0, NavigableString(header_text))
+    dropdown_head.append(dropdown_hotspot)
+
+    dropdown_body = xml.new_tag('MadCap:dropDownBody')
+
+    dropdown.append(dropdown_head)
+    dropdown.append(dropdown_body)
+    return dropdown
+
+
+def create_code_snippet(code_example, language, versions):
+    code_snippet_attrs = {'MadCap:conditions': clean_up_conditions(versions)}
+
+    code_snippet_body_attrs = {}
+    code_snippet_body_attrs['MadCap:useLineNumbers'] = "False"
+    code_snippet_body_attrs['MadCap:lineNumberStart'] = "1"
+    code_snippet_body_attrs['MadCap:continue'] = "False"
+    code_snippet_body_attrs['xml:space'] = "preserve"
+    if language != '':
+        code_snippet_body_attrs['style'] = f'mc-code-lang: {language}'
+
+    snippet_object = BeautifulSoup('', 'xml')
+    code_snippet = snippet_object.new_tag('MadCap:codeSnippet', **code_snippet_attrs)
+    code_snippet.append(snippet_object.new_tag('MadCap:codeSnippetCopyButton'))
+
+    code_snippet_body = snippet_object.new_tag('MadCap:codeSnippetBody', **code_snippet_body_attrs)
+    code_snippet_body.insert(0, NavigableString(code_example))
+    code_snippet.append(code_snippet_body)
+
+    return code_snippet
+
+def format_code (job_name, language, code):
+    if language == 'bash':
+        return f"confd_client -c {job_name} -a '{code}'"
+    elif language == 'python':
+        return f"conn.job_exec('{job_name}', {{'params': {code}}})"
+
+
+def create_table(conditions, topic, *args):
     table_attributes = {}
     table_attributes['MadCap:conditions'] = conditions
-    table_attributes['style'] = "mc-table-style: url('../Resource/TableStylesheets/Standard.css');"
+    if (topic):
+        table_attributes['style'] = "mc-table-style: url('../../Resource/TableStylesheets/Standard.css');"
+    else:
+        # Table is created in a snippet
+        table_attributes['style'] = "mc-table-style: url('../../../Resource/TableStylesheets/Standard.css');"
     table_attributes['class'] = 'TableStyle-Standard'
     table_attributes['cellspacing'] = '0'
 
@@ -414,27 +499,67 @@ def cross_reference(url, text):
     xref.string = text
     return xref
 
+def get_overview_file_name(job_name):
+    if job_name.startswith('bucket'):
+        return f'bucketfs_jobs'
+    elif job_name.startswith('db_'):
+        return f'db_jobs'
+    elif job_name.startswith('group_'):
+        return f'group_jobs'
+    elif job_name.startswith('infra_'):
+        return f'infra_jobs'
+    elif job_name.startswith('license_'):
+        return f'license_jobs'
+    elif job_name.startswith('node'):
+        return f'node_jobs'
+    elif job_name.startswith('object_volume_'):
+        return f'object_volume_jobs'
+    elif job_name.startswith('plugin_'):
+        return f'plugin_jobs'
+    elif job_name.startswith('remote_volume'):
+        return f'remote_volume_jobs'
+    elif job_name.startswith('st_'):
+        return f'storage_jobs'
+    elif job_name.startswith('user_'):
+        return f'user_jobs'
+    else:
+        return f'other_jobs'
+
+
+
+
 if __name__ == '__main__':
     list_of_options = []
-    absolute_path_to_files = 'C:\Docs\Content\Content\ConfD\\'
-    toc_file = 'C:\Docs\Content\Project\TOCs\Combined TOC.fltoc'
-    overview_file = 'C:\Docs\Content\Content\ConfD\ConfD_Reference.htm'
-    toc_paths = '/Content/ConfD'
+    absolute_path_to_files = 'C:\Docs\Flare_Projects\Exasol\Content\ConfD\jobs\\'
+    toc_file = 'C:\Docs\Flare_Projects\Exasol\Project\TOCs\ConfD.fltoc'
+    overview_file = 'C:\Docs\Flare_Projects\Exasol\Content\ConfD\ConfD_Reference.htm'
+    snippets_root = 'C:\Docs\Flare_Projects\Exasol\Content\Resources\Snippets\ConfD\\'
+    toc_paths = '/Content/ConfD/jobs'
+    toc_overview_page_path = '/Content/ConfD'
+    overview_pages = [
+        f'/Content/ConfD/overview_bucketfs_jobs.htm',
+        f'/Content/ConfD/overview_db_jobs.htm',
+        f'/Content/ConfD/overview_group_jobs.htm',
+        f'/Content/ConfD/overview_infra_jobs.htm',
+        f'/Content/ConfD/overview_license_jobs.htm',
+        f'/Content/ConfD/overview_node_jobs.htm',
+        f'/Content/ConfD/overview_object_volume_jobs.htm',
+        f'/Content/ConfD/overview_other_jobs.htm',
+        f'/Content/ConfD/overview_plugin_jobs.htm',
+        f'/Content/ConfD/overview_remote_volume_jobs.htm',
+        f'/Content/ConfD/overview_storage_jobs.htm',
+        f'/Content/ConfD/overview_user_jobs.htm'
+    ]
     # Note - the below credentials are NOT database users, these are confd users
-    databases = [{'host': 'localhost',
-                  'confd_port': 4443,
+    databases = [{'host': '18.203.212.32',
+                  'confd_port': 20003,
                   'confd_username': 'admin',
                   'confd_pw': 'exasol',
-                  'db_port': 9563,
+                  'db_host': '52.48.183.21',
+                  'db_port': 8563,
                   'db_username': 'sys',
                   'db_pw':'exasol'},
-                 {'host': 'localhost',
-                  'confd_port': 4444,
-                  'confd_username': 'admin',
-                  'confd_pw': 'exasol',
-                  'db_port': 9564,
-                  'db_username': 'sys',
-                  'db_pw': 'exasol'}]
+                 ]
 
     confd_jobs = {}
     for database in databases:
@@ -443,7 +568,7 @@ if __name__ == '__main__':
         conn = connect_to_confd(database['host'], database['confd_port'], database['confd_username'], database['confd_pw'])
 
         # Save which version is currently in use in the database
-        db_conn = connect_to_database(database['host'], database['db_port'], database['db_username'], database['db_pw'])
+        db_conn = connect_to_database(database['db_host'], database['db_port'], database['db_username'], database['db_pw'])
         version_family = execute_query(db_conn, 'SELECT DBMS_VERSION FROM EXA_SYSTEM_EVENTS ORDER BY MEASURE_TIME ASC LIMIT 1')[0][0][:3]
 
         for job in get_list_of_jobs(conn):
@@ -455,8 +580,11 @@ if __name__ == '__main__':
 
                 # Go through the various parameters and compare them. If there is a difference, add new entries
 
-                # Compare the descriptions
-                compare_and_update_details_1(confd_jobs[job]['description'], job_details, 0, version_family)
+                # Compare the descriptions, take the long description (found in 11) over short description
+                if job_details[11] is None:
+                    compare_and_update_details_1(confd_jobs[job]['description'], job_details, 0, version_family)
+                else:
+                    compare_and_update_details_1(confd_jobs[job]['description'], job_details, 11, version_family)
 
                 # Compare mandatory parameters
                 if job_details[1] is not None:
@@ -485,6 +613,13 @@ if __name__ == '__main__':
                     if job_details[5] is not None:
                         compare_and_update_details_1(confd_jobs[job]['allowed_groups'], job_details, 5, version_family)
 
+                # Compare examples
+                    if job_details[6] is not None:
+                        for key in job_details[6]:
+                            if key in confd_jobs[job]['examples']:
+                                compare_and_update_details_2(confd_jobs[job]['examples'][key],
+                                                             job_details[6][key], 6, version_family)
+
 
 
             else:
@@ -493,7 +628,7 @@ if __name__ == '__main__':
                     'versions': [version_family],
                     'description': [
                         {
-                            'data': job_details[0],
+                            'data': job_details[0] if job_details[11] is None else job_details[11],
                             'versions': [version_family]
                         }
                     ],
@@ -502,9 +637,17 @@ if __name__ == '__main__':
                     'substitute_params': {},
                     'allowed_users': {},
                     'allowed_groups': {},
+                    'examples': {},
+                    # Store the short description in extra field if the longer one takes precedence
+                    'extra_short_description': [
+                        {
+                            'data': job_details[0] if job_details[11] is not None else '',
+                            'versions': [version_family]
+                        }
+                    ]
                 }
 
-                for i in range(1, 6):
+                for i in range(1, 7):
                     detail_name = ''
                     if i == 1:
                         detail_name = 'mandatory_params'
@@ -516,6 +659,8 @@ if __name__ == '__main__':
                         detail_name = 'allowed_users'
                     elif i == 5:
                         detail_name = 'allowed_groups'
+                    elif i ==6:
+                        detail_name = 'examples'
                     else:
                         sys.exit('this should never be reached')
 
@@ -523,25 +668,32 @@ if __name__ == '__main__':
 
     # Now we begin creating all of the Soup stuff
 
-    # empty the overview page
-    with open(overview_file, encoding="utf-8-sig") as overview:
-        overview_page = BeautifulSoup(overview, "xml")
-    global job_list
-    job_list = overview_page.find('div', {"id": "job_list"})
-    job_list.clear()
+    # empty the overview snippets
+    global snippets
+    snippets= {}
+    for file in os.listdir(snippets_root):
+        overview_file = os.fsdecode(file)
 
-    job_list.append(create_table('','Job Name', 'Description'))
+        with open(f'{snippets_root}\{overview_file}', encoding="utf-8-sig") as overview:
+
+            snippets[os.path.basename(file)] = BeautifulSoup(overview, "xml")
+        snippets[os.path.basename(file)].find('body').clear()
+
+        snippets[os.path.basename(file)].find('body').append(create_table('', False, 'Job Name', 'Description'))
 
     # Prepare new TOC entries
     with open(toc_file, encoding="utf-8-sig") as toc:
         toc_page = BeautifulSoup(toc, "xml")
 
-    for entry in toc_page.findAll('TocEntry', {'Link': '/Content/ConfD/ConfD_Reference.htm'}):
-        entry.clear()
+    for page in overview_pages:
+        for entry in toc_page.findAll('TocEntry', {'Link': page}):
+            entry.clear()
 
     f=1
     for job, details in sorted(confd_jobs.items()):
         print(f"Updating file {job}.htm")
+        file_name = f'{get_overview_file_name(job)}.flsnp'
+
 
         # Check if there is already a file for this job name
 
@@ -549,19 +701,48 @@ if __name__ == '__main__':
         if not check_if_file_exists(full_path):
             create_file(full_path, job, clean_up_conditions(details['versions']))
 
-        with open(full_path, encoding="utf8") as fp:
+        with open(full_path, encoding="utf-8-sig") as fp:
             soup = BeautifulSoup(fp, "xml")
+        additional_short_desc = False
+        if details['extra_short_description'][0]['data'] != '':
+            additional_short_desc = True
 
-        # Clear all entries in the specified areas
         for detail_name, detail_info in details.items():
-            if detail_name not in ['job_name', 'versions']:
+
+            # Add the description to the overview page
+            if detail_name == 'description':
+                if not additional_short_desc:
+                    for info in detail_info:
+                        desc_table = snippets[file_name].find('body').find('table')
+                        desc_table = insert_row_into_table(desc_table, True,
+                                                                clean_up_conditions(info['versions']),
+                                                                cross_reference(f'jobs/{job}.htm', job), info['data'])
+                        snippets[file_name].find('body').append(desc_table)
+            elif detail_name == 'extra_short_description':
+                if additional_short_desc:
+                    for info in detail_info:
+                        desc_table = snippets[file_name].find('body').find('table')
+
+                        desc_table = insert_row_into_table(desc_table, True,
+                                                                clean_up_conditions(info['versions']),
+                                                                cross_reference(f'../../../ConfD/jobs/{job}.htm', job), info['data'])
+                        snippets[file_name].find('body').append(desc_table)
+
+            # Clear all entries in the specified areas
+
+            if detail_name not in ['job_name', 'versions', 'extra_short_description']:
                 section = soup.find("div", {"id": f"automated_{detail_name}"})
                 section.clear()
                 # Adds the entry to the new page as well as the entry to the overview page
                 section.append(generate_xml(job, detail_name, detail_info))
 
+        # Insert data into topic page
+        insert_into_file(full_path, soup)
+
+
         # Add page to appropriate TOC locations
-        for entry in toc_page.findAll('TocEntry', {'Link': '/Content/ConfD/ConfD_Reference.htm'}):
+        toc_link = f'{toc_overview_page_path}/overview_{get_overview_file_name(job)}.htm'
+        for entry in toc_page.findAll('TocEntry', {'Link': toc_link}):
             toc_props = {}
             toc_props['Title'] = '[%=System.LinkedHeader%]'
             toc_props['Link'] = f'{toc_paths}/{job}.htm'
@@ -573,11 +754,13 @@ if __name__ == '__main__':
             entry.append(new_toc_entry)
 
 
-
         f+=1
 
         insert_into_file(full_path, soup)
-    insert_into_file(overview_file, overview_page)
+
+
+    for snippet,content in snippets.items():
+        insert_into_file(f'{snippets_root}/{snippet}', content)
     insert_into_file(toc_file, toc_page)
 
     print("done")
